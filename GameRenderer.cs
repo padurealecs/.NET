@@ -1,40 +1,83 @@
 using Silk.NET.SDL;
+using Silk.NET.Maths;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using TheAdventure.Models;
 
 namespace TheAdventure;
 
-public class GameRenderer
+public partial class GameRenderer
 {
-    public readonly record struct TextureInfo
-    {
-        public int Width { get; init; }
-        public int Height { get; init; }
-        public int PixelDataSize => Width * Height * 4; // RGBA, 4 bytes per pixel
-    }
-
     private readonly Sdl _sdl;
     private readonly IntPtr _renderer;
     private readonly GameLogic _gameLogic;
+    private DateTimeOffset _lastFrameRenderedAt = DateTimeOffset.MinValue;
 
-    private readonly Dictionary<int, IntPtr> _texturePointers = new();
-    private readonly Dictionary<int, TextureInfo> _textureInformation = new();
-    private int _index = 0;
+    private static GameRenderer? _instance;
 
     public GameRenderer(Sdl sdl, GameWindow gameWindow, GameLogic gameLogic)
     {
         _sdl = sdl;
         _renderer = gameWindow.CreateRenderer();
         _gameLogic = gameLogic;
+        _instance = this;
     }
 
-    public int LoadTexture(string fileName, out TextureInfo textureInfo)
+    public void RenderGameObject(RenderableGameObject renderableGameObject)
+    {
+        unsafe
+        {
+            var renderer = (Renderer*)_renderer;
+            if (renderableGameObject.TextureId > -1 &&
+                _texturePointers.TryGetValue(renderableGameObject.TextureId, out var texturePointer))
+            {
+                _sdl.RenderCopyEx(renderer, (Texture*)texturePointer,
+                    renderableGameObject.TextureSource, renderableGameObject.TextureDestination,
+                    0, new Silk.NET.SDL.Point(0, 0), RendererFlip.None);
+            }
+        }
+    }
+
+    public void Render()
+    {
+        var timeSinceLastFrame = 0;
+        var now = DateTimeOffset.UtcNow;
+        if (_lastFrameRenderedAt > DateTimeOffset.MinValue)
+        {
+            timeSinceLastFrame = (int)now.Subtract(_lastFrameRenderedAt).TotalMilliseconds;
+        }
+
+        unsafe
+        {
+            var renderer = (Renderer*)_renderer;
+            _sdl.SetRenderDrawColor(renderer, 255, 255, 255, 255);
+            _sdl.RenderClear(renderer);
+        }
+
+        _gameLogic.RenderAllObjects(timeSinceLastFrame, this);
+        _lastFrameRenderedAt = now;
+
+        unsafe
+        {
+            _sdl.RenderPresent((Renderer*)_renderer);
+        }
+    }
+}
+
+public partial class GameRenderer
+{
+    private readonly Dictionary<int, IntPtr> _texturePointers = new();
+    private readonly Dictionary<int, TextureData> _textureInformation = new();
+    private int _index = 0;
+
+    public static int LoadTexture(string fileName, out TextureData textureData)
     {
         using var fStream = new FileStream(fileName, FileMode.Open, FileAccess.Read, FileShare.Read);
         var image = Image.Load<Rgba32>(fStream);
-        textureInfo = new TextureInfo() { Width = image.Width, Height = image.Height };
+        textureData = new TextureData() { Width = image.Width, Height = image.Height };
 
-        var imageRawData = new byte[textureInfo.PixelDataSize];
+        var pixelDataSize = textureData.Width * textureData.Height * 4;
+        var imageRawData = new byte[pixelDataSize];
         image.CopyPixelDataTo(imageRawData.AsSpan());
 
         IntPtr imageTexture;
@@ -42,39 +85,17 @@ public class GameRenderer
         {
             fixed (byte* data = imageRawData)
             {
-                var imageSurface = _sdl.CreateRGBSurfaceWithFormatFrom(data,
-                    textureInfo.Width, textureInfo.Height,
-                    8, textureInfo.Width * 4, (uint)PixelFormatEnum.Rgba32);
-                imageTexture = (IntPtr)_sdl.CreateTextureFromSurface((Renderer*)_renderer, imageSurface);
-                _sdl.FreeSurface(imageSurface);
+                var imageSurface = _instance!._sdl.CreateRGBSurfaceWithFormatFrom(data,
+                    textureData.Width, textureData.Height,
+                    8, textureData.Width * 4, (uint)PixelFormatEnum.Rgba32);
+                imageTexture = (IntPtr)_instance._sdl.CreateTextureFromSurface(
+                    (Renderer*)_instance._renderer, imageSurface);
+                _instance._sdl.FreeSurface(imageSurface);
             }
         }
 
-        _texturePointers[_index] = imageTexture;
-        _textureInformation[_index] = textureInfo;
-        return _index++;
-    }
-
-    public void Render()
-    {
-        unsafe
-        {
-            var renderer = (Renderer*)_renderer;
-            _sdl.SetRenderDrawColor(renderer, 255, 255, 255, 255);
-            _sdl.RenderClear(renderer);
-
-            foreach (var renderable in _gameLogic.GetRenderables())
-            {
-                if (renderable.TextureId > -1 &&
-                    _texturePointers.TryGetValue(renderable.TextureId, out var texturePointer))
-                {
-                    _sdl.RenderCopyEx(renderer, (Texture*)texturePointer,
-                        renderable.TextureSource, renderable.TextureDestination,
-                        0, new Silk.NET.SDL.Point(0, 0), RendererFlip.None);
-                }
-            }
-
-            _sdl.RenderPresent(renderer);
-        }
+        _instance!._texturePointers[_instance._index] = imageTexture;
+        _instance._textureInformation[_instance._index] = textureData;
+        return _instance._index++;
     }
 }
