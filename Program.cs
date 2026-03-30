@@ -20,7 +20,7 @@ public static class Program
         var gameRenderer = new GameRenderer(sdl, gameWindow, gameLogic);
         var inputLogic = new InputLogic(sdl, gameLogic);
 
-        gameLogic.InitializeGame(gameRenderer);
+        gameLogic.InitializeGame();
 
         bool quit = false;
         while (!quit)

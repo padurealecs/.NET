@@ -23,6 +23,17 @@ public partial class GameRenderer
         _instance = this;
     }
 
+    public void RenderTexture(int textureId, Rectangle<int> src, Rectangle<int> dst)
+    {
+        unsafe
+        {
+            if (_texturePointers.TryGetValue(textureId, out var texture))
+            {
+                _sdl.RenderCopy((Renderer*)_renderer, (Texture*)texture, in src, in dst);
+            }
+        }
+    }
+
     public void RenderGameObject(RenderableGameObject renderableGameObject)
     {
         unsafe
@@ -54,6 +65,7 @@ public partial class GameRenderer
             _sdl.RenderClear(renderer);
         }
 
+        _gameLogic.RenderTerrain(this);
         _gameLogic.RenderAllObjects(timeSinceLastFrame, this);
         _lastFrameRenderedAt = now;
 
