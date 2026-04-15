@@ -27,6 +27,20 @@ public class GameWindow
         }
     }
 
+    public (int Width, int Height) Size
+    {
+        get
+        {
+            int width = 0;
+            int height = 0;
+            unsafe
+            {
+                _sdl.GetWindowSize((Window*)_window, ref width, ref height);
+            }
+            return (width, height);
+        }
+    }
+
     public IntPtr CreateRenderer()
     {
         IntPtr renderer;
