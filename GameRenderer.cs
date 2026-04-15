@@ -11,6 +11,7 @@ public partial class GameRenderer
     private readonly Sdl _sdl;
     private readonly IntPtr _renderer;
     private readonly GameLogic _gameLogic;
+    private readonly GameCamera _camera = new();
     private DateTimeOffset _lastFrameRenderedAt = DateTimeOffset.MinValue;
 
     private static GameRenderer? _instance;
@@ -21,6 +22,28 @@ public partial class GameRenderer
         _renderer = gameWindow.CreateRenderer();
         _gameLogic = gameLogic;
         _instance = this;
+
+        _camera.X = 0;
+        _camera.Y = 0;
+        var windowSize = gameWindow.Size;
+        _camera.Width = windowSize.Width;
+        _camera.Height = windowSize.Height;
+    }
+
+    public void RenderGameObject(RenderableGameObject gameObject)
+    {
+        unsafe
+        {
+            var renderer = (Renderer*)_renderer;
+            if (gameObject.TextureId > -1 &&
+                _texturePointers.TryGetValue(gameObject.TextureId, out var texturePointer))
+            {
+                var textureDest = _camera.ToScreenCoordinates(gameObject.TextureDestination);
+                _sdl.RenderCopyEx(renderer, (Texture*)texturePointer,
+                    gameObject.TextureSource, textureDest,
+                    0, new Silk.NET.SDL.Point(0, 0), RendererFlip.None);
+            }
+        }
     }
 
     public void RenderTexture(int textureId, Rectangle<int> src, Rectangle<int> dst)
@@ -29,22 +52,8 @@ public partial class GameRenderer
         {
             if (_texturePointers.TryGetValue(textureId, out var texture))
             {
-                _sdl.RenderCopy((Renderer*)_renderer, (Texture*)texture, in src, in dst);
-            }
-        }
-    }
-
-    public void RenderGameObject(RenderableGameObject renderableGameObject)
-    {
-        unsafe
-        {
-            var renderer = (Renderer*)_renderer;
-            if (renderableGameObject.TextureId > -1 &&
-                _texturePointers.TryGetValue(renderableGameObject.TextureId, out var texturePointer))
-            {
-                _sdl.RenderCopyEx(renderer, (Texture*)texturePointer,
-                    renderableGameObject.TextureSource, renderableGameObject.TextureDestination,
-                    0, new Silk.NET.SDL.Point(0, 0), RendererFlip.None);
+                var translatedDst = _camera.ToScreenCoordinates(dst);
+                _sdl.RenderCopy((Renderer*)_renderer, (Texture*)texture, in src, in translatedDst);
             }
         }
     }
@@ -57,6 +66,10 @@ public partial class GameRenderer
         {
             timeSinceLastFrame = (int)now.Subtract(_lastFrameRenderedAt).TotalMilliseconds;
         }
+
+        var playerPos = _gameLogic.GetPlayerPosition();
+        _camera.X = playerPos.X;
+        _camera.Y = playerPos.Y;
 
         unsafe
         {
@@ -109,5 +122,16 @@ public partial class GameRenderer
         _instance!._texturePointers[_instance._index] = imageTexture;
         _instance._textureInformation[_instance._index] = textureData;
         return _instance._index++;
+    }
+
+    public static (int X, int Y) ToWorldCoordinates(int x, int y)
+    {
+        if (_instance == null)
+        {
+            throw new InvalidOperationException("GameRenderer instance is not initialized.");
+        }
+
+        var worldCoords = _instance._camera.ToWorldCoordinates(new Vector2D<int>(x, y));
+        return (worldCoords.X, worldCoords.Y);
     }
 }
