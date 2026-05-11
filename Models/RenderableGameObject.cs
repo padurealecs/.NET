@@ -1,29 +1,26 @@
-using Silk.NET.Maths;
+using Silk.NET.SDL;
 
 namespace TheAdventure.Models;
 
 public class RenderableGameObject : GameObject
 {
-    public int TextureId { get; protected set; }
-    public Rectangle<int> TextureSource { get; set; }
-    public Rectangle<int> TextureDestination { get; set; }
-    public TextureData TextureInformation { get; protected set; }
+    public SpriteSheet SpriteSheet { get; set; }
+    public (int X, int Y) Position { get; set; }
+    public double Angle { get; set; }
+    public Point RotationCenter { get; set; }
 
-    public RenderableGameObject(string fileName, int id) : base(id)
+    public RenderableGameObject(SpriteSheet spriteSheet, (int X, int Y) position, double angle = 0.0,
+        Point rotationCenter = new())
+        : base()
     {
-        TextureId = GameRenderer.LoadTexture(fileName, out var textureData);
-        TextureInformation = textureData;
-        TextureSource = new Rectangle<int>(0, 0, textureData.Width, textureData.Height);
-        TextureDestination = new Rectangle<int>(0, 0, textureData.Width, textureData.Height);
+        SpriteSheet = spriteSheet;
+        Position = position;
+        Angle = angle;
+        RotationCenter = rotationCenter;
     }
 
     public virtual void Render(GameRenderer renderer)
     {
-        renderer.RenderGameObject(this);
-    }
-
-    public virtual bool Update(int timeSinceLastFrame)
-    {
-        return true; // base implementation: always alive
+        SpriteSheet.Render(renderer, Position, Angle, RotationCenter);
     }
 }

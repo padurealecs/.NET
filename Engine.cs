@@ -5,20 +5,30 @@ using TheAdventure.Models.Data;
 
 namespace TheAdventure;
 
-public class GameLogic
+public class Engine
 {
-    private readonly Dictionary<int, GameObject> _gameObjects = new();
-    private int _bombIds = 100;
+    private readonly GameRenderer _renderer;
+    private readonly Input _input;
 
+    private readonly Dictionary<int, GameObject> _gameObjects = new();
     private readonly Dictionary<string, TileSet> _loadedTileSets = new();
     private readonly Dictionary<int, Tile> _tileIdMap = new();
     private Level _currentLevel = new();
 
     private PlayerObject? _player;
+    private DateTimeOffset _lastUpdate = DateTimeOffset.Now;
 
-    public void InitializeGame()
+    public Engine(GameRenderer renderer, Input input)
     {
-        _player = new(1000);
+        _renderer = renderer;
+        _input = input;
+
+        _input.OnMouseClick += (_, coords) => AddBomb(coords.x, coords.y);
+    }
+
+    public void SetupWorld()
+    {
+        _player = new(SpriteSheet.Load(_renderer, "Player.json", "Assets"), 100, 100);
 
         var levelContent = File.ReadAllText(Path.Combine("Assets", "terrain.tmj"));
         var level = JsonSerializer.Deserialize<Level>(levelContent);
@@ -38,36 +48,61 @@ public class GameLogic
 
             foreach (var tile in tileSet.Tiles)
             {
-                tile.TextureId = GameRenderer.LoadTexture(Path.Combine("Assets", tile.Image), out _);
+                tile.TextureId = _renderer.LoadTexture(Path.Combine("Assets", tile.Image), out _);
                 _tileIdMap.Add(tile.Id!.Value, tile);
             }
 
             _loadedTileSets.Add(tileSet.Name, tileSet);
         }
 
+        if (level.Width == null || level.Height == null)
+        {
+            throw new Exception("Invalid level dimensions");
+        }
+        if (level.TileWidth == null || level.TileHeight == null)
+        {
+            throw new Exception("Invalid tile dimensions");
+        }
+
+        _renderer.SetWorldBounds(new Rectangle<int>(0, 0,
+            level.Width.Value * level.TileWidth.Value,
+            level.Height.Value * level.TileHeight.Value));
+
         _currentLevel = level;
     }
 
     public void ProcessFrame()
     {
+        var currentTime = DateTimeOffset.Now;
+        var msSinceLastFrame = (currentTime - _lastUpdate).TotalMilliseconds;
+        _lastUpdate = currentTime;
+
+        double up = _input.IsUpPressed() ? 1.0 : 0.0;
+        double down = _input.IsDownPressed() ? 1.0 : 0.0;
+        double left = _input.IsLeftPressed() ? 1.0 : 0.0;
+        double right = _input.IsRightPressed() ? 1.0 : 0.0;
+
+        _player?.UpdatePosition(up, down, left, right, 48, 48, msSinceLastFrame);
     }
 
-    public void UpdatePlayerPosition(double up, double down, double left, double right, int timeSinceLastUpdateInMs)
+    public void RenderFrame()
     {
-        _player?.UpdatePosition(up, down, left, right, timeSinceLastUpdateInMs);
-    }
+        _renderer.SetDrawColor(0, 0, 0, 255);
+        _renderer.ClearScreen();
 
-    public (int X, int Y) GetPlayerPosition()
-    {
-        if (_player == null)
+        if (_player != null)
         {
-            return (0, 0);
+            var playerPosition = _player.Position;
+            _renderer.CameraLookAt(playerPosition.X, playerPosition.Y);
         }
 
-        return (_player.X, _player.Y);
+        RenderTerrain();
+        RenderAllObjects();
+
+        _renderer.PresentFrame();
     }
 
-    public void RenderTerrain(GameRenderer renderer)
+    public void RenderTerrain()
     {
         foreach (var currentLayer in _currentLevel.Layers)
         {
@@ -94,33 +129,30 @@ public class GameLogic
 
                     var sourceRect = new Rectangle<int>(0, 0, tileWidth, tileHeight);
                     var destRect = new Rectangle<int>(i * tileWidth, j * tileHeight, tileWidth, tileHeight);
-                    renderer.RenderTexture(currentTile.TextureId, sourceRect, destRect);
+                    _renderer.RenderTexture(currentTile.TextureId, sourceRect, destRect);
                 }
             }
         }
     }
 
-    public void RenderAllObjects(int timeSinceLastFrame, GameRenderer renderer)
+    public void RenderAllObjects()
     {
-        List<int> itemsToRemove = new List<int>();
+        var toRemove = new List<int>();
         foreach (var gameObject in GetRenderables())
         {
-            if (gameObject.Update(timeSinceLastFrame))
+            gameObject.Render(_renderer);
+            if (gameObject is TemporaryGameObject { IsExpired: true } tempGameObject)
             {
-                gameObject.Render(renderer);
-            }
-            else
-            {
-                itemsToRemove.Add(gameObject.Id);
+                toRemove.Add(tempGameObject.Id);
             }
         }
 
-        foreach (var item in itemsToRemove)
+        foreach (var id in toRemove)
         {
-            _gameObjects.Remove(item);
+            _gameObjects.Remove(id);
         }
 
-        _player?.Render(renderer);
+        _player?.Render(_renderer);
     }
 
     public IEnumerable<RenderableGameObject> GetRenderables()
@@ -134,11 +166,14 @@ public class GameLogic
         }
     }
 
-    public void AddBomb(int x, int y)
+    private void AddBomb(int screenX, int screenY)
     {
-        AnimatedGameObject bomb = new AnimatedGameObject(
-            Path.Combine("Assets", "BombExploding.png"), 2, _bombIds, 13, 13, 1, x, y);
+        var worldCoords = _renderer.ToWorldCoordinates(screenX, screenY);
+
+        SpriteSheet spriteSheet = SpriteSheet.Load(_renderer, "BombExploding.json", "Assets");
+        spriteSheet.ActivateAnimation("Explode");
+
+        TemporaryGameObject bomb = new(spriteSheet, 2.1, (worldCoords.X, worldCoords.Y));
         _gameObjects.Add(bomb.Id, bomb);
-        ++_bombIds;
     }
 }

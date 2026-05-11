@@ -15,26 +15,27 @@ public static class Program
             throw new InvalidOperationException("Failed to initialize SDL.");
         }
 
-        var gameWindow = new GameWindow(sdl);
-        var gameLogic = new GameLogic();
-        var gameRenderer = new GameRenderer(sdl, gameWindow, gameLogic);
-        var inputLogic = new InputLogic(sdl, gameLogic);
-
-        gameLogic.InitializeGame();
-
-        bool quit = false;
-        while (!quit)
+        using (var gameWindow = new GameWindow(sdl))
         {
-            quit = inputLogic.ProcessInput();
-            if (quit) break;
-            gameLogic.ProcessFrame();
+            var input = new Input(sdl);
+            var gameRenderer = new GameRenderer(sdl, gameWindow);
+            var engine = new Engine(gameRenderer, input);
 
-            gameRenderer.Render();
+            engine.SetupWorld();
 
-            System.Threading.Thread.Sleep(TimeSpan.FromSeconds(0.016666666666666666));
+            bool quit = false;
+            while (!quit)
+            {
+                quit = input.ProcessInput();
+                if (quit) break;
+
+                engine.ProcessFrame();
+                engine.RenderFrame();
+
+                System.Threading.Thread.Sleep(13);
+            }
         }
 
-        gameWindow.Destroy();
         sdl.Quit();
     }
 }

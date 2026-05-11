@@ -2,22 +2,19 @@ using Silk.NET.SDL;
 
 namespace TheAdventure;
 
-public class GameWindow
+public unsafe class GameWindow : IDisposable
 {
     private readonly Sdl _sdl;
-    private readonly IntPtr _window;
+    private IntPtr _window;
 
     public GameWindow(Sdl sdl)
     {
         _sdl = sdl;
 
-        unsafe
-        {
-            _window = (IntPtr)sdl.CreateWindow(
-                "The Adventure", Sdl.WindowposUndefined, Sdl.WindowposUndefined, 800, 800,
-                (uint)WindowFlags.Resizable | (uint)WindowFlags.AllowHighdpi
-            );
-        }
+        _window = (IntPtr)sdl.CreateWindow(
+            "The Adventure", Sdl.WindowposUndefined, Sdl.WindowposUndefined, 640, 400,
+            (uint)WindowFlags.Resizable | (uint)WindowFlags.AllowHighdpi
+        );
 
         if (_window == IntPtr.Zero)
         {
@@ -33,22 +30,15 @@ public class GameWindow
         {
             int width = 0;
             int height = 0;
-            unsafe
-            {
-                _sdl.GetWindowSize((Window*)_window, ref width, ref height);
-            }
+            _sdl.GetWindowSize((Window*)_window, ref width, ref height);
             return (width, height);
         }
     }
 
     public IntPtr CreateRenderer()
     {
-        IntPtr renderer;
-        unsafe
-        {
-            renderer = (IntPtr)_sdl.CreateRenderer((Window*)_window, -1, (uint)RendererFlags.Accelerated);
-            _sdl.RenderSetVSync((Renderer*)renderer, 1);
-        }
+        var renderer = (IntPtr)_sdl.CreateRenderer((Window*)_window, -1, (uint)RendererFlags.Accelerated);
+        _sdl.RenderSetVSync((Renderer*)renderer, 1);
 
         if (renderer == IntPtr.Zero)
         {
@@ -60,11 +50,23 @@ public class GameWindow
         return renderer;
     }
 
-    public void Destroy()
+    private void ReleaseUnmanagedResources()
     {
-        unsafe
+        if (_window != IntPtr.Zero)
         {
             _sdl.DestroyWindow((Window*)_window);
+            _window = IntPtr.Zero;
         }
+    }
+
+    public void Dispose()
+    {
+        ReleaseUnmanagedResources();
+        GC.SuppressFinalize(this);
+    }
+
+    ~GameWindow()
+    {
+        ReleaseUnmanagedResources();
     }
 }
